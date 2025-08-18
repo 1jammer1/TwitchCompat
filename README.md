@@ -1,4 +1,4 @@
-# twitchcompat 
+# TwitchCompat 
 
 You ever want to watch your [oshi](https://twitch.tv/Amorrette) but your goddamn [fourth gen ipod touch](https://en.wikipedia.org/wiki/IPod_Touch_(4th_generation)) made in 2010 wont play twitch?
 
@@ -12,11 +12,11 @@ anyways now that i've pissed off jeff bezos lets get to the boring bit for us sm
 
 ## features (so far, more later)
 
-[x] plays streams (video and audio)  
-[x] optional server-side transmux to fragmented MP4 (worst case, browser doesn't support js needed) 
-[] Search functionality
-[] youtube support
-[] chat (and sign in on another device in case yours can't)  
+- [x] plays streams (video and audio)  
+- [x] optional server-side transmux to fragmented MP4 (worst case, browser doesn't support js needed) 
+- [] Search functionality  
+- [] youtube support  
+- [] chat (and sign in on another device in case yours can't)  
  
 
 ## General usage
