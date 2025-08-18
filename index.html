@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8" />
+	<title>TwitchCompat</title>
+	<style>
+		body { font-family: system-ui, sans-serif; margin: 2rem; background:#111; color:#eee; }
+		code { background:#222; padding:2px 4px; border-radius:4px; }
+		a { color:#8ab4ff; }
+		h1 { margin-top:0; }
+		form { display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; margin-bottom:1rem; }
+		input, select { background:#1c1c1c; color:#eee; border:1px solid #333; padding:.4rem .6rem; border-radius:4px; }
+		button { background:#2d5fe8; color:#fff; border:0; padding:.5rem 1rem; border-radius:4px; cursor:pointer; }
+		button:disabled { opacity:.5; cursor: not-allowed; }
+		#status { font-size:.9rem; opacity:.8; min-height:1.2rem; }
+		video { width:100%; max-width:960px; background:#000; aspect-ratio:16/9; }
+	</style>
+	<script src="https://cdn.jsdelivr.net/npm/mpegts.js@1.7.2/dist/mpegts.min.js"></script>
+</head>
+<body>
+	<h1>TwitchCompat</h1>
+	<p>enter a Twitch channel to start streaming via the proxy using MPEG-TS. working in browsers that can't load twitch's homepage.</p>
+
+	<form id="playForm">
+		<label>Channel <input id="channel" required placeholder="channel name" /></label>
+		<label>quality
+			<select id="quality">
+				<option value="best" selected>best</option>
+				<option>1080p</option>
+				<option>720p30</option>
+				<option>480p30</option>
+				<option>360p30</option>
+				<option>160p30</option>
+				<option value="audio_only">audio only</option>
+			</select>
+		</label>
+		<label>container
+			<select id="container">
+				<option value="ts" selected>MPEG-TS</option>
+				<option value="mp4">MP4 (server transmux)</option>
+			</select>
+		</label>
+		<button type="submit">play</button>
+		<button type="button" id="stopBtn" disabled>stop</button>
+	</form>
+	<div id="status"></div>
+	<video id="player" controls autoplay muted playsinline></video>
+
+	<h2>direct endpoint</h2>
+	<p>pattern: <code>/stream/&lt;channel&gt;?quality=&lt;quality&gt;</code></p>
+	<p>health: <code>/health</code></p>
+	<p>returned mime: <code>video/mp2t</code> (unless you asked for mp4 transmux)</p>
+	<p>set <code>PORT</code>/<code>HOST</code> env vars.</p>
+	<footer style="margin-top:2rem;font-size:0.8rem;opacity:0.7;">WTFPL license. this page stays minimal on purpose.</footer>
+
+	<script>
+		const form = document.getElementById('playForm');
+		const channelInput = document.getElementById('channel');
+		const qualitySelect = document.getElementById('quality');
+		const statusEl = document.getElementById('status');
+		const videoEl = document.getElementById('player');
+		const stopBtn = document.getElementById('stopBtn');
+		const containerSelect = document.getElementById('container');
+		let player = null;
+
+		function showMessage(msg, isError=false) {
+			statusEl.textContent = msg;
+			statusEl.style.color = isError ? '#f66' : '#9fc';
+		}
+
+		function killPlayer() {
+			if (player) {
+				try { player.unload(); player.destroy(); } catch(e) {}
+				player = null;
+			}
+			videoEl.removeAttribute('src');
+			videoEl.load();
+			stopBtn.disabled = true;
+		}
+
+		stopBtn.addEventListener('click', () => { killPlayer(); showMessage('stopped.'); });
+
+		form.addEventListener('submit', (e) => {
+			e.preventDefault();
+			const channel = channelInput.value.trim();
+			if (!channel) return;
+			const quality = qualitySelect.value;
+			const container = containerSelect.value;
+			const base = `/stream/${encodeURIComponent(channel)}?quality=${encodeURIComponent(quality)}` + (container === 'mp4' ? '&container=mp4' : '');
+			const url = base;
+			killPlayer();
+			showMessage('loading stream...');
+			if (container === 'mp4') {
+				// native attempt (fragmented mp4)
+				videoEl.src = url;
+				videoEl.play().then(()=>showMessage(`playing ${channel} (mp4 transmux)`)).catch(()=>showMessage('cannot play mp4 stream', true));
+				stopBtn.disabled = false;
+				return;
+			}
+			// existing MPEG-TS + mpegts.js path
+			if (window.mpegts && mpegts.isSupported()) {
+				player = mpegts.createPlayer({
+					type: 'mpegts',
+					isLive: true,
+					url
+				}, { enableStashBuffer: false });
+				player.attachMediaElement(videoEl);
+				player.load();
+				player.play().then(()=>showMessage(`playing ${channel} (${quality})`)).catch(err=>showMessage('click play (browser blocked auto play maybe)', true));
+				player.on(mpegts.Events.ERROR, (type, detail) => { showMessage(`error: ${type} ${detail}`, true); });
+				stopBtn.disabled = false;
+			} else {
+				// fallback, its gonna fucking fail in most browsers, sorgy dude (left intentionally)
+				videoEl.src = url;
+				videoEl.play().then(()=>showMessage(`playing (native attempt) ${channel}`)).catch(()=>showMessage('your browser cant do raw mpeg-ts (yet). maybe try mp4 mode.', true));
+				stopBtn.disabled = false;
+			}
+		});
+	</script>
+</body>
+</html>
+
