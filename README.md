@@ -14,9 +14,10 @@ anyways now that i've pissed off jeff bezos lets get to the boring bit for us sm
 
 - [x] plays streams (video and audio)  
 - [x] optional server-side transmux to fragmented MP4 (worst case, browser doesn't support js needed) 
-- [] Search functionality  
-- [] youtube support  
-- [] chat (and sign in on another device in case yours can't)  
+- [ ] Windows 98 support
+- [ ] Search functionality  
+- [ ] youtube support  
+- [ ] chat (and sign in on another device in case yours can't)  
  
 
 ## General usage
