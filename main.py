@@ -34,7 +34,7 @@ class _SharedTranscoder:
 	def __init__(self, channel: str, quality: str, container: str):
 		self.channel = channel
 		self.quality = quality
-		self.container = container  # mp4 / avi / mp3
+		self.container = container  # mp4 / mp3
 		self.lock = threading.Lock()
 		self.subscribers: List[queue.Queue] = []
 		self.buffer: List[Tuple[float, bytes]] = []  # (timestamp, chunk)
@@ -50,22 +50,15 @@ class _SharedTranscoder:
 	def _cmd(self):
 		if self.container == 'mp3':
 			return ["ffmpeg","-hide_banner","-loglevel","error","-i","pipe:0","-vn","-c:a","libmp3lame","-b:a","96k","-f","mp3","pipe:1"]
-		if self.container == 'avi':
-			return ["ffmpeg","-hide_banner","-loglevel","error","-i","pipe:0","-r","15","-c:v","cinepak","-b:v","500k","-pix_fmt","yuv420p","-c:a","pcm_s16le","-ar","44100","-ac","2","-f","avi","pipe:1"]
-		# mp4
-		# add low-latency flags & reduced probe/analyze time so first fragments flush fast
+		# mp4 (low-latency settings)
 		return [
 			"ffmpeg","-hide_banner","-loglevel","error",
-			# input
 			"-analyzeduration","1000000","-probesize","64k","-fflags","nobuffer",
 			"-i","pipe:0",
-			# video encoding
 			"-vcodec","libx264","-preset","veryfast","-tune","zerolatency",
 			"-profile:v","baseline","-level","3.0","-pix_fmt","yuv420p",
 			"-g","48","-keyint_min","48","-force_key_frames","expr:gte(t,n_forced*2)",
-			# audio
 			"-acodec","aac","-strict","-2","-b:a","128k",
-			# muxer flags: fragmented mp4, force early moov, flush packets
 			"-movflags","+frag_keyframe+empty_moov+default_base_moof+faststart","-flush_packets","1",
 			"-f","mp4","pipe:1"
 		]
@@ -479,89 +472,6 @@ def transmux_ts_to_mp4(fd) -> Optional[Generator[bytes, None, None]]:
 	return gen()
 
 
-def transcode_ts_to_avi(fd) -> Optional[Generator[bytes, None, None]]:
-	if shutil.which("ffmpeg") is None:
-		log.error("ffmpeg missing, cannot transcode to avi")
-		return None
-	try:
-		proc = subprocess.Popen(
-			[
-				"ffmpeg",
-				"-hide_banner",
-				"-loglevel", "error",
-				"-i", "pipe:0",
-				"-r", "15",
-				"-c:v", "cinepak",
-				"-b:v", "500k",
-				# pixel format for broadest decoder support
-				"-pix_fmt", "yuv420p",
-				# uncompressed PCM audio
-				"-c:a", "pcm_s16le",
-				"-ar", "44100",
-				"-ac", "2",
-				"-f", "avi",
-				"pipe:1",
-			],
-			stdin=subprocess.PIPE,
-			stdout=subprocess.PIPE,
-			stderr=subprocess.PIPE,
-			bufsize=0
-		)
-	except Exception as e:
-		log.error("failed to start ffmpeg (avi): %s", e)
-		return None
-
-	def feeder():
-		try:
-			while True:
-				if proc.poll() is not None:
-					break
-				chunk = fd.read(188 * 32)
-				if not chunk:
-					break
-				try:
-					proc.stdin.write(chunk)
-				except (BrokenPipeError, ValueError):
-					break
-		finally:
-			for x in (proc.stdin,):
-				try: x.close()
-				except Exception: pass
-			try: fd.close()
-			except Exception: pass
-
-	def stderr_logger():
-		try:
-			for line in iter(proc.stderr.readline, b''):
-				if not line:
-					break
-				log.warning("ffmpeg(avi): %s", line.decode('utf-8', 'ignore').strip())
-		except Exception:
-			pass
-		finally:
-			try: proc.stderr.close()
-			except Exception: pass
-
-	threading.Thread(target=feeder, daemon=True).start()
-	threading.Thread(target=stderr_logger, daemon=True).start()
-
-	def gen():
-		try:
-			while True:
-				if proc.poll() is not None and (hasattr(proc.stdout, "peek") and proc.stdout.peek(1) == b''):
-					break
-				out = proc.stdout.read(32 * 1024)
-				if not out:
-					if proc.poll() is not None:
-						break
-					continue
-				yield out
-		finally:
-			try: proc.kill()
-			except Exception: pass
-			log.info("avi transcode ended")
-	return gen()
-
 
 def extract_wav_audio(fd) -> Optional[Generator[bytes, None, None]]:
 	"""
@@ -874,14 +784,14 @@ def stream(channel: str):
 	fd = open_stream_fd(channel, quality)
 	if not fd:
 		abort(404, ERR_MSG)
-	if container in ('mp4','avi','mp3'):
+	if container in ('mp4','mp3'):
 		# shared transcoder path, close initial fd (each shared transcoder opens its own source)
 		try: fd.close()
 		except Exception: pass
 		tr = get_shared_transcoder(channel, quality, container)
 		if tr.closed:
 			abort(404, ERR_MSG)
-		mime = 'video/mp4' if container=='mp4' else ('video/x-msvideo' if container=='avi' else 'audio/mpeg')
+		mime = 'video/mp4' if container=='mp4' else 'audio/mpeg'
 		return _build_stream_response(tr.subscribe(), mime)
 	elif container == 'wav':
 		return _build_stream_response(extract_wav_audio(fd), 'audio/wav')
@@ -984,18 +894,10 @@ def legacy_mjpeg(channel: str):
 	fd = open_stream_fd(channel, quality)
 	return _build_stream_response(transcode_ts_to_mjpeg(fd) if fd else None, 'multipart/x-mixed-replace; boundary=ffmpeg')
 
-@app.route('/avi/<channel>.avi', methods=['GET', 'HEAD'])
-def legacy_avi(channel: str):
-	quality = request.args.get('quality', 'best')
-	tr = get_shared_transcoder(channel, quality, 'avi')
-	if tr.closed:
-		abort(404, ERR_MSG)
-	return _build_stream_response(tr.subscribe(), 'video/x-msvideo')
-
 
 @app.after_request
 def add_global_no_cache(resp):
-	if request.path.startswith(('/stream/', '/mp4/', '/ts/', '/wav/', '/avi/', '/mp3/', '/mjpeg/', '/snapshot/', '/hls/')) or request.path == '/':
+	if request.path.startswith(('/stream/', '/mp4/', '/ts/', '/wav/', '/mp3/', '/mjpeg/', '/snapshot/', '/hls/')) or request.path == '/':
 		resp = _no_cache_headers(resp)
 	return resp
 

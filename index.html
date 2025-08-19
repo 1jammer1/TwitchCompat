@@ -33,11 +33,10 @@
 		</label>
 		<label>format
 			<select id="fmt">
-				<option value="mp4">mp4</option>
+				<option value="mp4">fmp4 (2015+ all browsers)</option>
 				<option value="ts" selected>ts</option>
-				<option value="hls">hls</option>
+				<option value="hls">hls (safari & others w/javascript year<=2010)</option>
 				<option value="wav">wav (audio)</option>
-				<option value="avi">avi (cinepak)</option>
 				<option value="mp3">mp3 (audio)</option>
 				<option value="mjpeg">mjpeg (very old browsers)</option>
 				<option value="snapshot">snapshot (single jpg)</option>
@@ -91,7 +90,6 @@
 			else if (fmt === 'ts') base = '/ts/' + encodeURIComponent(channel) + '.ts';
 			else if (fmt === 'hls') base = '/hls/' + encodeURIComponent(channel) + '.m3u8';
 			else if (fmt === 'wav') base = '/wav/' + encodeURIComponent(channel) + '.wav';
-			else if (fmt === 'avi') base = '/avi/' + encodeURIComponent(channel) + '.avi';
 			else if (fmt === 'mp3') base = '/mp3/' + encodeURIComponent(channel) + '.mp3';
 			else if (fmt === 'mjpeg') base = '/mjpeg/' + encodeURIComponent(channel);
 			else if (fmt === 'snapshot') base = '/snapshot/' + encodeURIComponent(channel) + '.jpg';
@@ -250,7 +248,7 @@
 	</script>
 
 	<div style="margin-top:18px;font-size:11px;opacity:.7;">
-		endpoints: /mp4/<chan>.mp4 /ts/<chan>.ts /wav/<chan>.wav /avi/<chan>.avi ?quality=best etc
+		endpoints: /mp4/<chan>.mp4 /ts/<chan>.ts /wav/<chan>.wav /mp3/<chan>.mp3 ?quality=best etc
 	</div>
 </body>
 </html>
