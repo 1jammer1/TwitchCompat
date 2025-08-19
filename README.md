@@ -12,8 +12,10 @@ anyways now that i've pissed off jeff bezos lets get to the boring bit for us sm
 
 ## features (so far, more later)
 
-- [x] plays streams (video and audio)  
-- [x] optional server-side transmux to fragmented MP4 (worst case, browser doesn't support js needed) 
+ - [x] plays streams (video and audio)  
+ - [x] optional server-side transmux to fragmented MP4 (worst case, browser doesn't support js needed)
+ - [x] alternate containers: ts / mp4 / avi (cinepak) / wav (PCM) / mp3
+ - [x] mjpeg multipart stream + single JPEG snapshot fallback for ultra-legacy browsers
 - [ ] Windows 98 support
 - [ ] Search functionality  
 - [ ] youtube support  
@@ -53,6 +55,20 @@ Optional: raw MPEG-TS over `/stream/<channel>?quality=best` (needs mpegts.js on 
 Example:
 ```
 /stream/Amorrette?quality=720p30&container=mp4
+```
+
+### Direct endpoints
+
+You can also fetch these directly (append `?quality=best` or another quality):
+
+```
+/mp4/<channel>.mp4
+/ts/<channel>.ts
+/wav/<channel>.wav
+/mp3/<channel>.mp3
+/avi/<channel>.avi
+/mjpeg/<channel>          (multipart/x-mixed-replace mjpeg @ ~5fps)
+/snapshot/<channel>.jpg   (single frame)
 ```
 
 ## credits

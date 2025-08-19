@@ -1,122 +1,257 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
 	<meta charset="UTF-8" />
 	<title>TwitchCompat</title>
+	<meta http-equiv="Cache-Control" content="no-store" />
 	<style>
-		body { font-family: system-ui, sans-serif; margin: 2rem; background:#111; color:#eee; }
-		code { background:#222; padding:2px 4px; border-radius:4px; }
+		body { background:#111; color:#eee; font:14px Arial, sans-serif; margin:12px; }
+		h1 { margin:0 0 8px; font-size:18px; }
+		label { display:inline-block; margin:4px 8px 4px 0; }
+		input, select { background:#1c1c1c; color:#eee; border:1px solid #333; padding:4px 6px; }
+		button { background:#2d5fe8; color:#fff; border:0; padding:5px 12px; cursor:pointer; }
+		#status { margin:8px 0; min-height:16px; font-size:12px; }
+		video, audio { width:100%; max-width:640px; background:#000; }
 		a { color:#8ab4ff; }
-		h1 { margin-top:0; }
-		form { display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; margin-bottom:1rem; }
-		input, select { background:#1c1c1c; color:#eee; border:1px solid #333; padding:.4rem .6rem; border-radius:4px; }
-		button { background:#2d5fe8; color:#fff; border:0; padding:.5rem 1rem; border-radius:4px; cursor:pointer; }
-		button:disabled { opacity:.5; cursor: not-allowed; }
-		#status { font-size:.9rem; opacity:.8; min-height:1.2rem; }
-		video { width:100%; max-width:960px; background:#000; aspect-ratio:16/9; }
 	</style>
-	<script src="https://cdn.jsdelivr.net/npm/mpegts.js@1.7.2/dist/mpegts.min.js"></script>
 </head>
 <body>
 	<h1>TwitchCompat</h1>
-	<p>enter a Twitch channel to start streaming via the proxy using MPEG-TS. working in browsers that can't load twitch's homepage.</p>
-
-	<form id="playForm">
-		<label>Channel <input id="channel" required placeholder="channel name" /></label>
+		<p>enter a Twitch channel to start streaming via the proxy using MPEG-TS. working in browsers that can't load twitch's homepage.</p>
+	<form id="f">
+		<label>channel <input id="ch" required placeholder="channel" /></label>
 		<label>quality
-			<select id="quality">
-				<option value="best" selected>best</option>
-				<option>1080p</option>
-				<option>720p30</option>
-				<option>480p30</option>
-				<option>360p30</option>
-				<option>160p30</option>
+			<select id="q">
+				<option value="best">best</option>
+				<option value="1080p">1080p</option>
+				<option value="720p30">720p30</option>
+				<option value="480p30">480p30</option>
+				<option value="360p30">360p30</option>
+				<option value="160p30">160p30</option>
 				<option value="audio_only">audio only</option>
 			</select>
 		</label>
-		<label>container
-			<select id="container">
-				<option value="ts" selected>MPEG-TS</option>
-				<option value="mp4">MP4 (server transmux)</option>
+		<label>format
+			<select id="fmt">
+				<option value="mp4">mp4</option>
+				<option value="ts" selected>ts</option>
+				<option value="hls">hls</option>
+				<option value="wav">wav (audio)</option>
+				<option value="avi">avi (cinepak)</option>
+				<option value="mp3">mp3 (audio)</option>
+				<option value="mjpeg">mjpeg (very old browsers)</option>
+				<option value="snapshot">snapshot (single jpg)</option>
 			</select>
 		</label>
 		<button type="submit">play</button>
-		<button type="button" id="stopBtn" disabled>stop</button>
+		<button type="button" id="stop" disabled>stop</button>
 	</form>
 	<div id="status"></div>
-	<video id="player" controls autoplay muted playsinline></video>
+	<video id="vid" controls autoplay muted playsinline></video>
+	<audio id="aud" controls style="display:none;"></audio>
 
-	<h2>direct endpoint</h2>
-	<p>pattern: <code>/stream/&lt;channel&gt;?quality=&lt;quality&gt;</code></p>
-	<p>health: <code>/health</code></p>
-	<p>returned mime: <code>video/mp2t</code> (unless you asked for mp4 transmux)</p>
-	<p>set <code>PORT</code>/<code>HOST</code> env vars.</p>
-	<footer style="margin-top:2rem;font-size:0.8rem;opacity:0.7;">WTFPL license. this page stays minimal on purpose.</footer>
+	<div style="margin-top:12px;font-size:12px;">
+		direct link: <code id="direct"></code>
+	</div>
 
 	<script>
-		const form = document.getElementById('playForm');
-		const channelInput = document.getElementById('channel');
-		const qualitySelect = document.getElementById('quality');
-		const statusEl = document.getElementById('status');
-		const videoEl = document.getElementById('player');
-		const stopBtn = document.getElementById('stopBtn');
-		const containerSelect = document.getElementById('container');
-		let player = null;
+		(function(){
+			var s=document.createElement('script');
+			s.src='https://unpkg.com/mpegts.js@latest/dist/mpegts.js';
+			s.async=true;
+			document.head.appendChild(s);
+		})();
+		(function(){
+			var s=document.createElement('script');
+			s.src='https://cdn.jsdelivr.net/npm/hls.js@latest';
+			s.async=true;
+			document.head.appendChild(s);
+		})();
+		// Simple ES5 code for legacy browsers
+		var form = document.getElementById('f');
+		var chanBox = document.getElementById('ch');      // channel input
+		var qualPick = document.getElementById('q');      // quality select
+		var fmtPick = document.getElementById('fmt');     // format select
+		var vidBox = document.getElementById('vid');      // video element
+		var audBox = document.getElementById('aud');      // audio element (hidden until needed)
+		var statusSpot = document.getElementById('status');
+		var stopBtn = document.getElementById('stop');
+		var directCode = document.getElementById('direct');
+		var tsDude = null; // mpegts.js player instance (destroyed often)
+		var hlsDude = null; // hls.js player instance
 
-		function showMessage(msg, isError=false) {
-			statusEl.textContent = msg;
-			statusEl.style.color = isError ? '#f66' : '#9fc';
+		function tell(t, bad) { // lil status writer
+			statusSpot.style.color = bad ? '#f66' : '#9fc';
+			statusSpot.innerHTML = t;
 		}
 
-		function killPlayer() {
-			if (player) {
-				try { player.unload(); player.destroy(); } catch(e) {}
-				player = null;
-			}
-			videoEl.removeAttribute('src');
-			videoEl.load();
+		function make_url(channel, quality, fmt) { // decides which endpoint
+			var base;
+			if (fmt === 'mp4') base = '/mp4/' + encodeURIComponent(channel) + '.mp4';
+			else if (fmt === 'ts') base = '/ts/' + encodeURIComponent(channel) + '.ts';
+			else if (fmt === 'hls') base = '/hls/' + encodeURIComponent(channel) + '.m3u8';
+			else if (fmt === 'wav') base = '/wav/' + encodeURIComponent(channel) + '.wav';
+			else if (fmt === 'avi') base = '/avi/' + encodeURIComponent(channel) + '.avi';
+			else if (fmt === 'mp3') base = '/mp3/' + encodeURIComponent(channel) + '.mp3';
+			else if (fmt === 'mjpeg') base = '/mjpeg/' + encodeURIComponent(channel);
+			else if (fmt === 'snapshot') base = '/snapshot/' + encodeURIComponent(channel) + '.jpg';
+			else base = '/stream/' + encodeURIComponent(channel); // fallback
+			return base + '?quality=' + encodeURIComponent(quality);
+		}
+
+		function stop_it_all() { // hard reset playback bits
+			vidBox.pause(); audBox.pause();
+			if (tsDude) { try { tsDude.destroy(); } catch(e){} tsDude = null; }
+			if (hlsDude) { try { hlsDude.destroy(); } catch(e){} hlsDude = null; }
+			vidBox.removeAttribute('src'); audBox.removeAttribute('src');
+			vidBox.load(); audBox.load();
+			// clear snapshot / mjpeg images so previous connections close
+			var snap = document.getElementById('snapImg');
+			if (snap) { try { snap.src = ''; } catch(e){} snap.parentNode.removeChild(snap); }
+			var mj = document.getElementById('mjpegImg');
+			if (mj) { try { mj.src = ''; } catch(e){} mj.parentNode.removeChild(mj); }
+			audBox.style.display = 'none';
+			vidBox.style.display = 'block';
 			stopBtn.disabled = true;
+			tell('stopped.');
 		}
 
-		stopBtn.addEventListener('click', () => { killPlayer(); showMessage('stopped.'); });
+		stopBtn.onclick = stop_it_all; // user forced stop
 
-		form.addEventListener('submit', (e) => {
+		form.onsubmit = function(e) { // main go button
 			e.preventDefault();
-			const channel = channelInput.value.trim();
+			var channel = chanBox.value.replace(/\s+/g,'');
 			if (!channel) return;
-			const quality = qualitySelect.value;
-			const container = containerSelect.value;
-			const base = `/stream/${encodeURIComponent(channel)}?quality=${encodeURIComponent(quality)}` + (container === 'mp4' ? '&container=mp4' : '');
-			const url = base;
-			killPlayer();
-			showMessage('loading stream...');
-			if (container === 'mp4') {
-				// native attempt (fragmented mp4)
-				videoEl.src = url;
-				videoEl.play().then(()=>showMessage(`playing ${channel} (mp4 transmux)`)).catch(()=>showMessage('cannot play mp4 stream', true));
-				stopBtn.disabled = false;
+			var quality = qualPick.value;
+			var fmt = fmtPick.value;
+			var url = make_url(channel, quality, fmt);
+			directCode.textContent = url;
+			directCode.parentNode.href = url;
+
+			stop_it_all();
+			tell('connecting...');
+			stopBtn.disabled = false;
+
+			if (fmt === 'wav') { // RAW DATA WAV
+				audBox.style.display = 'block';
+				vidBox.style.display = 'none';
+				audBox.src = url;
+				audBox.load();
+				var p = audBox.play();
+				if (p && p.then) p.then(function(){ tell('playing audio ' + channel); }, function(){ tell('cannot start audio', true); });
 				return;
 			}
-			// existing MPEG-TS + mpegts.js path
-			if (window.mpegts && mpegts.isSupported()) {
-				player = mpegts.createPlayer({
-					type: 'mpegts',
-					isLive: true,
-					url
-				}, { enableStashBuffer: false });
-				player.attachMediaElement(videoEl);
-				player.load();
-				player.play().then(()=>showMessage(`playing ${channel} (${quality})`)).catch(err=>showMessage('click play (browser blocked auto play maybe)', true));
-				player.on(mpegts.Events.ERROR, (type, detail) => { showMessage(`error: ${type} ${detail}`, true); });
-				stopBtn.disabled = false;
-			} else {
-				// fallback, its gonna fucking fail in most browsers, sorgy dude (left intentionally)
-				videoEl.src = url;
-				videoEl.play().then(()=>showMessage(`playing (native attempt) ${channel}`)).catch(()=>showMessage('your browser cant do raw mpeg-ts (yet). maybe try mp4 mode.', true));
-				stopBtn.disabled = false;
+
+			if (fmt === 'mp3') { 
+				audBox.style.display = 'block';
+				vidBox.style.display = 'none';
+				audBox.src = url;
+				audBox.load();
+				var p2 = audBox.play();
+				if (p2 && p2.then) p2.then(function(){ tell('playing mp3 ' + channel); }, function(){ tell('cannot start audio', true); });
+				return;
 			}
-		});
+
+			if (fmt === 'snapshot') { 
+				vidBox.style.display = 'none';
+				audBox.style.display = 'none';
+				var existing = document.getElementById('snapImg');
+				if (!existing) {
+					existing = document.createElement('img');
+					existing.id = 'snapImg';
+					existing.style.maxWidth = '640px';
+					directEl.parentNode.parentNode.insertBefore(existing, directEl.parentNode.nextSibling);
+				}
+				existing.style.display = 'block';
+				function refresh(){ existing.src = url + '&_=' + Date.now(); }
+				refresh();
+				tell('snapshot loaded (manual refresh on submit)');
+				return;
+			}
+
+			if (fmt === 'mjpeg') { // multipart mjpeg + side wav for web browsers that dont believe in video codecs
+				vidBox.style.display = 'none';
+				audBox.style.display = 'block';
+				var wavUrl = buildURL(channel, quality, 'wav');
+				audBox.src = wavUrl; audBox.load();
+				var ap = audBox.play(); if (ap && ap.then) ap.then(function(){}, function(){ tell('audio autoplay blocked', true); });
+				var mj = document.getElementById('mjpegImg');
+				if (!mj) {
+					mj = document.createElement('img');
+					mj.id = 'mjpegImg';
+					mj.style.maxWidth = '640px';
+					directEl.parentNode.parentNode.insertBefore(mj, directEl.parentNode.nextSibling);
+				}
+				mj.src = url; // keep open
+				tell('mjpeg streaming (low fps) + wav audio');
+				return;
+			}
+
+			if (fmt === 'hls') { // use hls.js if it exists else hope native works
+				if (window.Hls && window.Hls.isSupported()) {
+					try {
+						hlsDude = new window.Hls({lowLatencyMode:true, backBufferLength:15});
+						hlsDude.loadSource(url);
+						hlsDude.attachMedia(vidBox);
+						hlsDude.on(window.Hls.Events.MANIFEST_PARSED, function(){
+							var hp = vidBox.play();
+							if (hp && hp.then) hp.then(function(){ tell('playing ' + channel + ' (hls.js)'); }, function(){ tell('press play (blocked)', true); });
+						});
+					} catch(e) {
+						tell('hls.js error; trying native', true);
+						vidBox.src = url; vidBox.load(); vidBox.play();
+					}
+					return;
+				}
+				// native attempt
+				vidBox.src = url; vidBox.load();
+				var hNat = vidBox.play();
+				if (hNat && hNat.then) hNat.then(function(){ tell('playing ' + channel + ' (hls native)'); }, function(){ tell('cannot autoplay hls (maybe unsupported)', true); });
+				return;
+			}
+
+			if (fmt === 'ts') { 
+				if (window.mpegts && window.mpegts.isSupported()) {
+					try {
+						tsDude = window.mpegts.createPlayer({
+							type: 'mpegts',
+							url: url,
+							isLive: true,
+							enableStashBuffer: false
+						});
+						tsDude.attachMediaElement(vidBox);
+						tsDude.load();
+						var pr2 = tsDude.play ? tsDude.play() : vidBox.play();
+						if (pr2 && pr2.then) pr2.then(function(){ tell('playing ' + channel + ' (ts via mpegts.js)'); }, function(){ tell('press play (autoplay blocked)', true); });
+					} catch(e) {
+						tell('ts player error, falling back to raw ts', true);
+						vidBox.src = url;
+						vidBox.load();
+						vidBox.play();
+					}
+					return;
+				}
+				vidBox.src = url;
+				vidBox.load();
+				var tsPr = vidBox.play();
+				if (tsPr && tsPr.then) tsPr.then(function(){ tell('playing ' + channel + ' (raw ts)'); }, function(){ tell('raw ts not supported here', true); });
+				return;
+			}
+
+			vidBox.src = url;
+			vidBox.load();
+			var pr = vidBox.play();
+			if (pr && pr.then) {
+				pr.then(function(){ tell('playing ' + channel + ' (' + fmt + ')'); }, function(){ tell('cannot autoplay, press play button', true); });
+			} else {
+				tell('playing ' + channel);
+			}
+		};
 	</script>
+
+	<div style="margin-top:18px;font-size:11px;opacity:.7;">
+		endpoints: /mp4/<chan>.mp4 /ts/<chan>.ts /wav/<chan>.wav /avi/<chan>.avi ?quality=best etc
+	</div>
 </body>
 </html>
 
