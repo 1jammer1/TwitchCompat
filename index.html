@@ -50,7 +50,7 @@
 	<audio id="aud" controls style="display:none;"></audio>
 
 	<div style="margin-top:12px;font-size:12px;">
-		direct link: <code id="direct"></code>
+		direct link: <a id="directLink" href="#"><code id="direct"></code></a>
 	</div>
 
 	<script>
@@ -76,6 +76,7 @@
 		var statusSpot = document.getElementById('status');
 		var stopBtn = document.getElementById('stop');
 		var directCode = document.getElementById('direct');
+		var directLink = document.getElementById('directLink');
 		var tsDude = null; // mpegts.js player instance (destroyed often)
 		var hlsDude = null; // hls.js player instance
 
@@ -98,16 +99,18 @@
 		}
 
 		function stop_it_all() { // hard reset playback bits
-			vidBox.pause(); audBox.pause();
+			try { vidBox.pause(); } catch(e) {}
+			try { audBox.pause(); } catch(e) {}
 			if (tsDude) { try { tsDude.destroy(); } catch(e){} tsDude = null; }
 			if (hlsDude) { try { hlsDude.destroy(); } catch(e){} hlsDude = null; }
 			vidBox.removeAttribute('src'); audBox.removeAttribute('src');
-			vidBox.load(); audBox.load();
+			try { vidBox.load(); } catch(e) {}
+			try { audBox.load(); } catch(e) {}
 			// clear snapshot / mjpeg images so previous connections close
 			var snap = document.getElementById('snapImg');
-			if (snap) { try { snap.src = ''; } catch(e){} snap.parentNode.removeChild(snap); }
+			if (snap) { try { snap.src = ''; } catch(e){} try { snap.parentNode.removeChild(snap); } catch(e){} }
 			var mj = document.getElementById('mjpegImg');
-			if (mj) { try { mj.src = ''; } catch(e){} mj.parentNode.removeChild(mj); }
+			if (mj) { try { mj.src = ''; } catch(e){} try { mj.parentNode.removeChild(mj); } catch(e){} }
 			audBox.style.display = 'none';
 			vidBox.style.display = 'block';
 			stopBtn.disabled = true;
@@ -124,7 +127,7 @@
 			var fmt = fmtPick.value;
 			var url = make_url(channel, quality, fmt);
 			directCode.textContent = url;
-			directCode.parentNode.href = url;
+			directLink.href = url;
 
 			stop_it_all();
 			tell('connecting...');
@@ -158,7 +161,13 @@
 					existing = document.createElement('img');
 					existing.id = 'snapImg';
 					existing.style.maxWidth = '640px';
-					directEl.parentNode.parentNode.insertBefore(existing, directEl.parentNode.nextSibling);
+					// insert after the direct link area (which is inside a div)
+					var insertAfter = directLink.parentNode;
+					if (insertAfter && insertAfter.parentNode) {
+						insertAfter.parentNode.insertBefore(existing, insertAfter.nextSibling);
+					} else {
+						document.body.appendChild(existing);
+					}
 				}
 				existing.style.display = 'block';
 				function refresh(){ existing.src = url + '&_=' + Date.now(); }
@@ -170,7 +179,7 @@
 			if (fmt === 'mjpeg') { // multipart mjpeg + side wav for web browsers that dont believe in video codecs
 				vidBox.style.display = 'none';
 				audBox.style.display = 'block';
-				var wavUrl = buildURL(channel, quality, 'wav');
+				var wavUrl = make_url(channel, quality, 'wav');
 				audBox.src = wavUrl; audBox.load();
 				var ap = audBox.play(); if (ap && ap.then) ap.then(function(){}, function(){ tell('audio autoplay blocked', true); });
 				var mj = document.getElementById('mjpegImg');
@@ -178,7 +187,12 @@
 					mj = document.createElement('img');
 					mj.id = 'mjpegImg';
 					mj.style.maxWidth = '640px';
-					directEl.parentNode.parentNode.insertBefore(mj, directEl.parentNode.nextSibling);
+					var insertAfter2 = directLink.parentNode;
+					if (insertAfter2 && insertAfter2.parentNode) {
+						insertAfter2.parentNode.insertBefore(mj, insertAfter2.nextSibling);
+					} else {
+						document.body.appendChild(mj);
+					}
 				}
 				mj.src = url; // keep open
 				tell('mjpeg streaming (low fps) + wav audio');
@@ -197,7 +211,7 @@
 						});
 					} catch(e) {
 						tell('hls.js error; trying native', true);
-						vidBox.src = url; vidBox.load(); vidBox.play();
+						vidBox.src = url; vidBox.load(); try { vidBox.play(); } catch(e) {}
 					}
 					return;
 				}
@@ -225,7 +239,7 @@
 						tell('ts player error, falling back to raw ts', true);
 						vidBox.src = url;
 						vidBox.load();
-						vidBox.play();
+						try { vidBox.play(); } catch(e) {}
 					}
 					return;
 				}
@@ -252,4 +266,3 @@
 	</div>
 </body>
 </html>
-
