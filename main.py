@@ -47,6 +47,9 @@ class _SharedTranscoder:
 			return
 		self._start_ffmpeg()
 
+	def _key(self):
+		return (self.channel, self.quality, self.container)
+
 	def _cmd(self):
 		if self.container == 'mp3':
 			return ["ffmpeg","-hide_banner","-loglevel","error","-i","pipe:0","-vn","-c:a","libmp3lame","-b:a","96k","-f","mp3","pipe:1"]
@@ -132,6 +135,12 @@ class _SharedTranscoder:
 			self.closed = True
 			self._broadcast_end()
 			log.info("shared transcoder ended %s/%s/%s", self.channel, self.quality, self.container)
+			# remove self from global map to avoid leaks
+			try:
+				with _TRANSCODER_LOCK:
+					_TRANSCODERS.pop(self._key(), None)
+			except Exception:
+				pass
 
 	def _stderr_logger(self):
 		if not self.proc or not self.proc.stderr:
@@ -168,6 +177,12 @@ class _SharedTranscoder:
 					if self.proc:
 						self.proc.kill()
 				except Exception: pass
+				# ensure we remove from global map
+				try:
+					with _TRANSCODER_LOCK:
+						_TRANSCODERS.pop(self._key(), None)
+				except Exception:
+					pass
 				break
 
 	def subscribe(self) -> Generator[bytes, None, None]:
@@ -296,6 +311,25 @@ class _HLSManager:
 		try:
 			if self.proc: self.proc.kill()
 		except Exception: pass
+		# remove from global registry so it can be GC'd
+		try:
+			with _HLS_LOCK:
+				_HLS_MANAGERS.pop((self.channel, self.quality), None)
+		except Exception:
+			pass
+		# try to remove the directory if it's empty to avoid buildup
+		try:
+			if os.path.isdir(self.dir):
+				try:
+					# remove any leftover small files that are not active segments (best-effort)
+					entries = os.listdir(self.dir)
+					if not entries:
+						os.rmdir(self.dir)
+				except Exception:
+					# best-effort only
+					pass
+		except Exception:
+			pass
 
 	def playlist(self) -> Optional[str]:  
 		self.touch()
@@ -327,9 +361,15 @@ def get_hls_manager(channel: str, quality: str) -> _HLSManager:
 	key = (channel, quality)
 	with _HLS_LOCK:
 		mgr = _HLS_MANAGERS.get(key)
-		if mgr and not mgr.closed:
-			return mgr
+		if mgr:
+			# if found but closed, remove it so we create a fresh one
+			if not mgr.closed:
+				return mgr
+			_HLS_MANAGERS.pop(key, None)
 		mgr = _HLSManager(channel, quality)
+		# only register if started successfully
+		if mgr.closed:
+			return mgr
 		_HLS_MANAGERS[key] = mgr
 		return mgr
 
@@ -341,8 +381,11 @@ def get_shared_transcoder(channel: str, quality: str, container: str) -> _Shared
 	key = (channel, quality, container)
 	with _TRANSCODER_LOCK:
 		tr = _TRANSCODERS.get(key)
-		if tr and not tr.closed:
-			return tr
+		if tr:
+			# if found but closed remove and make a new one
+			if not tr.closed:
+				return tr
+			_TRANSCODERS.pop(key, None)
 		tr = _SharedTranscoder(channel, quality, container)
 		if tr.closed:
 			return tr
@@ -911,4 +954,3 @@ def main():
 
 if __name__ == '__main__':
 	main()
-
