@@ -58,7 +58,7 @@ class _SharedTranscoder:
 			"ffmpeg","-hide_banner","-loglevel","error",
 			"-analyzeduration","1000000","-probesize","64k","-fflags","nobuffer",
 			"-i","pipe:0",
-			"-vcodec","libx264","-preset","veryfast","-tune","zerolatency",
+			"-vcodec","mpeg4","-preset","veryfast","-tune","zerolatency", "-vtag", "xvid"
 			"-profile:v","baseline","-level","3.0","-pix_fmt","yuv420p",
 			"-g","48","-keyint_min","48","-force_key_frames","expr:gte(t,n_forced*2)",
 			"-acodec","aac","-strict","-2","-b:a","128k",
